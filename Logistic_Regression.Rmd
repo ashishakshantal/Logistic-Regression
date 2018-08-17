@@ -1,0 +1,296 @@
+---
+title: "Prediction of Term Deposit Subscription"
+output: html_document
+---
+clear the environment
+```{r setup, include=FALSE}
+rm(list = ls(all=TRUE))
+```
+
+set working directory
+
+```{r}
+setwd("F:/P&D_Model Building/20170902_LogisticRegression_LectureNotes/logistic_regression_activity_reviewed")
+```
+
+reading the data
+```{r}
+bank_data <- read.table("bank.txt", header=T, sep=";")
+
+```
+
+understand the data
+```{r}
+str(bank_data)
+summary(bank_data)
+head(bank_data)
+tail(bank_data)
+```
+
+Data Pre Processing
+Missing Values
+
+```{r}
+sum(is.na(bank_data))
+```
+
+Train/Test Split
+Split the data 70/30 into train and test sets by using Stratified Sampling and
+setting the seed as "786"(any random number)
+Split the data using stratified sampling, we can do that by using the
+createDataPartition() function from the caret package
+```{r}
+#install.packages('caret')
+library(caret)
+set.seed(786)
+train_rows <- createDataPartition(bank_data$y, p = 0.7, list = F)
+train_data <- bank_data[train_rows, ]
+test_data <- bank_data[-train_rows, ]
+#str(train_data)
+
+```
+
+
+
+Model Building 
+Basic Logistic Regression Model
+Model is built using all the variables, excluding the response variable,
+in the dataset.
+
+```{r}
+log_reg <- glm(y~., data = train_data, family = binomial)
+summary(log_reg)
+```
+
+ROC (Receiver Operating Curve)
+'Creating an ROC plot
+Steps to create an ROC plot :
+Get a list of predictions (probability scores) using the predict() function'
+```{r}
+prob_train <- predict(log_reg, type = "response")
+```
+'Use the argument 'type = "response"' in the predict
+function to get a list of predictions between 0 and 1'
+
+```{r}
+library(ROCR)
+pred <- prediction(prob_train, train_data$y)
+```
+
+Extract performance measures (True Positive Rate and False Positive Rate)
+using the "performance()" function from the ROCR package
+```{r}
+perf <- performance(pred, measure="tpr", x.measure="fpr")
+```
+
+
+Plot the ROC curve using the extracted performance measures (TPR and FPR)
+```{r}
+plot(perf, col=rainbow(10), colorize=T, print.cutoffs.at=seq(0,1,0.05))
+
+```
+
+Extract the AUC score of the ROC curve and store it in a variable named "auc"
+```{r}
+perf_auc <- performance(pred, measure="auc")
+```
+
+Access the auc score from the performance object
+```{r}
+auc <- perf_auc@y.values[[1]]
+print(auc)
+```
+
+Choose a Cutoff Value
+Based on the trade off between TPR and FPR depending on the business domain,
+a call on the cutoff has to be made.
+From the above graph , a cutoff of value 0.1 can be chosen
+
+Predictions on test data
+choosing a cut off value of 0.1
+```{r}
+prob_test <- predict(log_reg, test_data, type = "response")
+preds_test <- ifelse(prob_test > 0.1, "yes", "no")
+```
+
+Evaluation Metrics for classification
+Manual Computation
+Confusion Matrix
+Create a confusion matrix using the table() function
+
+```{r}
+test_data_labs <- test_data$y
+conf_matrix <- table(test_data_labs, preds_test)
+print(conf_matrix)
+```
+
+Specificity: The Proportion of correctly identified negatives by the test/model.
+```{r}
+specificity <- conf_matrix[1, 1]/sum(conf_matrix[1, ])
+print(specificity)
+```
+
+
+Sensitivity: The Proportion of correctly identified positives by the test/model.
+```{r}
+sensitivity <- conf_matrix[2, 2]/sum(conf_matrix[2, ])
+print(sensitivity)
+```
+
+
+Accuracy : The Proportion of correctly identified psotivies/negatives in the entire population by the test/model
+```{r}
+accuracy <- sum(diag(conf_matrix))/sum(conf_matrix)
+print(accuracy)
+```
+
+Bias and Variance
+Understanding Bias
+
+=>Create multiple training data sets starting with a less sample size and keep on increasing the sample size
+=>Build the models on each of the training data set
+=>Look at the performance of the models interms of accuracy
+=>Below is a function to compute the error metrics on training and testing data
+
+```{r}
+FN_ErrorMetics <- function(model,train,test){
+  prob_train <- predict(model, train,type = "response")
+  prob_test <- predict(model, test, type = "response")
+  preds_train <- ifelse(prob_train > 0.1, "yes", "no")
+  preds_test <- ifelse(prob_test > 0.1, "yes", "no")
+  
+  train_data_labs <- train$y
+  test_data_labs <- test$y
+  
+  conf_matrix <- table(train_data_labs, preds_train)
+  specificity <- conf_matrix[1, 1]/sum(conf_matrix[1, ])
+  sensitivity <- conf_matrix[2, 2]/sum(conf_matrix[2, ])
+  accuracy <- sum(diag(conf_matrix))/sum(conf_matrix)
+  resultrain <-c(accuracy,specificity,sensitivity)
+  
+  conf_matrix <- table(test_data_labs, preds_test)
+  specificity <- conf_matrix[1, 1]/sum(conf_matrix[1, ])
+  sensitivity <- conf_matrix[2, 2]/sum(conf_matrix[2, ])
+  accuracy <- sum(diag(conf_matrix))/sum(conf_matrix)
+  resultest <-c(accuracy,specificity,sensitivity)
+  
+  result <- data.frame(rbind(resultrain,resultest))
+  names(result) = c("Accuracy","Specificity","Sensitivity")
+  return(result)
+  }
+```
+
+
+```{r}
+bvTrainData <- subset(train_data,select=c(age,duration,y))
+bvTestData <- subset(test_data,select=c(age,duration,y))
+
+log_reg <- glm(y~., data = bvTrainData[1:100,], family = binomial)
+res100 <- FN_ErrorMetics(log_reg,bvTrainData[1:100,],bvTestData)
+
+log_reg <- glm(y~., data = bvTrainData[1:200,], family = binomial)
+res200 <- FN_ErrorMetics(log_reg,bvTrainData[1:200,],bvTestData)
+
+log_reg <- glm(y~., data = bvTrainData[1:400,], family = binomial)
+res400 <-FN_ErrorMetics(log_reg,bvTrainData[1:400,],bvTestData)
+
+log_reg <- glm(y~., data = bvTrainData[1:600,], family = binomial)
+res600 <-FN_ErrorMetics(log_reg,bvTrainData[1:600,],bvTestData)
+
+log_reg <- glm(y~., data = bvTrainData[1:800,], family = binomial)
+res800 <-FN_ErrorMetics(log_reg,bvTrainData[1:800,],bvTestData)
+
+log_reg <- glm(y~., data = bvTrainData[1:1000,], family = binomial)
+res1000 <-FN_ErrorMetics(log_reg,bvTrainData[1:1000,],bvTestData)
+
+log_reg <- glm(y~., data = bvTrainData[1:1200,], family = binomial)
+res1200 <-FN_ErrorMetics(log_reg,bvTrainData[1:1200,],bvTestData)
+
+log_reg <- glm(y~., data = bvTrainData[1:1300,], family = binomial)
+res1300 <-FN_ErrorMetics(log_reg,bvTrainData[1:1300,],bvTestData)
+```
+
+Combining the results from all the above models
+```{r}
+finalResult <- data.frame(rbind(res100,res200,res400,res600,res800,res1000,
+                                res1200,res1300))
+TrainResult <- finalResult[seq(1,nrow(finalResult),by=2),]
+TestResult <- finalResult[seq(2,nrow(finalResult),by=2),]
+ErrorBias <- data.frame(cbind("rows"=c(100,200,400,600,800,1000,1200,1300),
+                        "TrainError"=1-TrainResult$Accuracy,
+                        "TestError" = 1-TestResult$Accuracy))
+```
+
+plot the models 
+```{r}
+
+plot(ErrorBias$TrainError,type="l", lty=2,col="red",axes=F,xlab="# Reocords",ylab="Error")
+lines(ErrorBias$TestError, col="blue")
+axis(at=1:8,side=1,labels=c("100","200","400","600","800","1000","1200","1300"))
+axis(side=2,at=seq(0,1,0.05))
+
+```
+
+
+Understanding Variance
+=>Create multiple models starting with a sample model and keep on increasing the complexity of the model
+=>In this case study, we will increase the complexity of model by raising the power of the models from 2 to 6
+=>Look at the performance of the models interms of accuracy
+
+```{r}
+
+log_reg <- glm(y~., data = bvTrainData, family = binomial)
+res <-FN_ErrorMetics(log_reg,bvTrainData,bvTestData)
+
+log_regA2 <- glm(y~poly(age,2)+duration, data = bvTrainData, family = binomial)
+resA2 <-FN_ErrorMetics(log_regA2,bvTrainData,bvTestData)
+
+log_regA3 <- glm(y~poly(age,3)+duration, data = bvTrainData, family = binomial)
+resA3 <-FN_ErrorMetics(log_regA3,bvTrainData,bvTestData)
+
+log_regA4 <- glm(y~poly(age,4)+duration, data = bvTrainData, family = binomial)
+resA4 <-FN_ErrorMetics(log_regA4,bvTrainData,bvTestData)
+
+log_regA5 <- glm(y~poly(age,5)+duration, data = bvTrainData, family = binomial)
+resA5 <-FN_ErrorMetics(log_regA5,bvTrainData,bvTestData)
+
+log_regA6 <- glm(y~poly(age,6)+duration, data = bvTrainData, family = binomial)
+resA6 <-FN_ErrorMetics(log_regA6,bvTrainData,bvTestData)
+
+log_regboth <- glm(y~poly(age,2)+poly(duration,4), data = bvTrainData, family = binomial)
+resboth <-FN_ErrorMetics(log_regboth,bvTrainData,bvTestData)
+
+```
+
+
+Combing the results
+```{r}
+finalResult <- data.frame(rbind(res,resA2,resA3,resA4,resA4,resA5,resA6
+                                ,resboth))
+
+TrainResult <- finalResult[seq(1,nrow(finalResult),by=2),]
+TestResult <- finalResult[seq(2,nrow(finalResult),by=2),]
+ErrorVar <- data.frame(cbind("rows"=1:nrow(TrainResult),
+                                   "TrainError"=1-TrainResult$Accuracy,
+                                   "TestError" = 1-TestResult$Accuracy))
+```
+
+Plot the models
+```{r}
+plot(ErrorVar$TrainError,type="l", col="red", axes = F,xlab = "Model complexity",
+     ylab = "Errors")
+lines(ErrorVar$TestError, col="blue")
+axis(at=1:8,side=1,labels=c("lg","lg2","lg3","lg4","lg5","lg6","lg7","lg8"))
+axis(side=2,at=seq(0,1,0.05))
+```
+
+
+
+
+
+
+
+
+
+
+
